@@ -1,0 +1,11 @@
+langchain
+langchain-text-splitters
+requests
+python-dotenv
+youtube-transcript-api
+openai
+sentence-transformers
+chromadb
+langchain-chroma
+streamlit
+langchain-openai

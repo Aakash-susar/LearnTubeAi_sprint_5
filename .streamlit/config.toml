@@ -1,0 +1,11 @@
+[server]
+fileWatcherType = "poll"
+
+[runner]
+fastReruns = true
+
+[browser]
+gatherUsageStats = false
+
+[logger]
+level = "error"
