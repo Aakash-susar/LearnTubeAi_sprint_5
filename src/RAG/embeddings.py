@@ -8,9 +8,6 @@ from langchain_core.documents import Document
 from langchain_chroma import Chroma
 from sentence_transformers import SentenceTransformer
 
-# ========================================
-# CONFIGURATION (ENV-BACKED WITH DEFAULTS)
-# ========================================
 
 MODEL_NAME = os.getenv(
     "EMBEDDING_MODEL_NAME",
@@ -63,9 +60,7 @@ class LearnTubeEmbeddings:
         return embedding.tolist()
 
 
-# ========================================
 # VECTOR STORE MANAGEMENT & CACHING
-# ========================================
 
 def get_vector_store():
     """

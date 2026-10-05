@@ -27,8 +27,12 @@ from src.RAG.embeddings import (
 )
 from src.RAG.prompts import (
     PROMPT_TEMPLATE,
-    SUMMARY_PROMPT_TEMPLATE,
-    QUIZ_PROMPT_TEMPLATE
+    SUMMARY_PROMPTS,
+    get_summary_prompt,
+    QUIZ_PROMPTS,
+    get_quiz_prompt,
+    VISUALIZATION_PROMPTS,
+    get_visualization_prompt
 )
 
 # LLM CONFIGURATION
@@ -179,13 +183,23 @@ def answer_question(
             "sources": []
         }
 
-    # If the answer is a refusal / not found, do NOT show irrelevant sources
-    is_refusal = (
-        "couldn't find this information" in answer.lower()
-        or "could not find this information" in answer.lower()
-        or "unable to find" in answer.lower()
-        or "not mentioned in the video" in answer.lower()
-    )
+    # If the answer is a refusal / not found / out-of-scope, do NOT show irrelevant sources
+    refusal_indicators = [
+        "couldn't find this information",
+        "could not find this information",
+        "unable to find",
+        "not mentioned in the video",
+        "does not cover",
+        "does not discuss",
+        "does not mention",
+        "not covered in the video",
+        "not discussed in the video",
+        "no information about",
+        "no relevant timestamps",
+        "video does not cover",
+        "video you referenced does not cover"
+    ]
+    is_refusal = any(ind in answer.lower() for ind in refusal_indicators)
 
     sources = []
     if not is_refusal and search_results:
@@ -210,12 +224,18 @@ def answer_question(
     }
 
 
+# ========================================
 # VIDEO SUMMARY (LANGCHAIN LCEL PIPELINE)
+# ========================================
 
-def generate_video_summary(transcript: list, metadata: dict = None) -> str:
+def generate_video_summary(
+    transcript: list,
+    metadata: dict = None,
+    style: str = "study_notes"
+) -> str:
     """
-    Generate structured study notes and summary for a video using LangChain LCEL:
-    SUMMARY_PROMPT_TEMPLATE | ChatOpenAI | StrOutputParser
+    Generate structured summary for a video in the requested style using LangChain LCEL:
+    get_summary_prompt(style) | ChatOpenAI | StrOutputParser
     """
     if not transcript:
         return "No transcript available to generate a summary."
@@ -238,7 +258,8 @@ def generate_video_summary(transcript: list, metadata: dict = None) -> str:
         api_key=api_key
     )
 
-    summary_chain = SUMMARY_PROMPT_TEMPLATE | llm | StrOutputParser()
+    prompt_template = get_summary_prompt(style)
+    summary_chain = prompt_template | llm | StrOutputParser()
 
     try:
         summary_result = summary_chain.invoke({
@@ -251,12 +272,19 @@ def generate_video_summary(transcript: list, metadata: dict = None) -> str:
         return f"Error generating summary: {str(e)}"
 
 
+# ========================================
 # VIDEO QUIZ GENERATOR (LANGCHAIN LCEL)
+# ========================================
 
-def generate_video_quiz(transcript: list, metadata: dict = None, num_questions: int = 4) -> list[dict]:
+def generate_video_quiz(
+    transcript: list,
+    metadata: dict = None,
+    num_questions: int = 5,
+    style: str = "quick_test"
+) -> list[dict]:
     """
-    Generate an interactive multiple-choice quiz using LangChain LCEL:
-    QUIZ_PROMPT_TEMPLATE | ChatOpenAI | JsonOutputParser
+    Generate an interactive multiple-choice quiz in the requested mode using LangChain LCEL:
+    get_quiz_prompt(style) | ChatOpenAI | JsonOutputParser
     """
     if not transcript:
         return []
@@ -279,7 +307,8 @@ def generate_video_quiz(transcript: list, metadata: dict = None, num_questions: 
         api_key=api_key
     )
 
-    quiz_chain = QUIZ_PROMPT_TEMPLATE | llm | JsonOutputParser()
+    prompt_template = get_quiz_prompt(style)
+    quiz_chain = prompt_template | llm | JsonOutputParser()
 
     try:
         quiz_result = quiz_chain.invoke({
@@ -294,3 +323,70 @@ def generate_video_quiz(transcript: list, metadata: dict = None, num_questions: 
     except Exception as e:
         print(f"Error generating quiz: {e}")
         return []
+
+
+# ========================================
+# VIDEO VISUALIZATION GENERATOR (LANGCHAIN LCEL)
+# ========================================
+
+def generate_video_visualization(
+    transcript: list,
+    metadata: dict = None,
+    visual_type: str = "mindmap"
+) -> str:
+    """
+    Generate clean Mermaid.js diagram (Mindmap or Flowchart) using LangChain LCEL:
+    get_visualization_prompt(visual_type) | ChatOpenAI | StrOutputParser
+    """
+    if not transcript:
+        return "No transcript available to generate diagram."
+
+    transcript_text = "\n".join(
+        snippet.get("text", "") for snippet in transcript if snippet.get("text")
+    )
+    transcript_text = transcript_text[:40000]
+
+    video_title = metadata.get("title", "Educational Video") if metadata else "Educational Video"
+    channel_title = metadata.get("channel_title", "Instructor") if metadata else "Instructor"
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return "Error: OPENAI_API_KEY is not configured in your .env file."
+
+    llm = ChatOpenAI(
+        model=OPENAI_MODEL,
+        temperature=OPENAI_TEMPERATURE,
+        api_key=api_key
+    )
+
+    prompt_template = get_visualization_prompt(visual_type)
+    chain = prompt_template | llm | StrOutputParser()
+
+    try:
+        raw_result = chain.invoke({
+            "video_title": video_title,
+            "channel_title": channel_title,
+            "transcript_text": transcript_text
+        })
+        diagram = raw_result.strip()
+
+        # Clean markdown code block markers if LLM included them
+        if diagram.startswith("```mermaid"):
+            diagram = diagram[len("```mermaid"):].strip()
+        elif diagram.startswith("```"):
+            diagram = diagram[len("```"):].strip()
+        if diagram.endswith("```"):
+            diagram = diagram[:-3].strip()
+
+        # Ensure correct Mermaid header directive
+        norm_type = visual_type.lower().strip() if visual_type else "mindmap"
+        if norm_type == "mindmap":
+            if not diagram.startswith("mindmap"):
+                diagram = f"mindmap\n{diagram}"
+        elif norm_type == "flowchart":
+            if not (diagram.startswith("graph ") or diagram.startswith("flowchart ")):
+                diagram = f"graph TD\n{diagram}"
+
+        return diagram
+    except Exception as e:
+        return f"Error generating visualization: {str(e)}"

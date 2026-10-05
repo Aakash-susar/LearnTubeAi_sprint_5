@@ -9,3 +9,11 @@ chromadb
 langchain-chroma
 streamlit
 langchain-openai
+fastapi
+uvicorn
+pymongo
+reportlab
+langgraph
+langchain-core
+faster-whisper
+python-multipart
